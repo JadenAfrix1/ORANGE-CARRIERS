@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 from bs4 import BeautifulSoup
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 
@@ -44,6 +45,7 @@ CDR_API_TEMPLATE = os.getenv(
 )
 LOGIN_URL = "https://www.orangecarrier.com/login"
 CDR_PAGE = "https://www.orangecarrier.com/CDR/mycdrs"
+PORT = int(os.getenv("PORT", "8000"))
 
 # Admin ID (hardcoded)
 ADMIN_ID = 6524840104
@@ -724,6 +726,16 @@ def main():
                 asyncio.create_task(account_worker(app, acc))
             # heartbeat
             asyncio.create_task(heartbeat_task(app))
+            # HTTP server for Render
+            async def health_check(request):
+                return web.Response(text="OK", status=200)
+            web_app = web.Application()
+            web_app.router.add_get("/", health_check)
+            runner = web.AppRunner(web_app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", PORT)
+            await site.start()
+            logger.info("HTTP server started on port %d", PORT)
 
         app.post_init = on_post_init
 
