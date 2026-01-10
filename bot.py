@@ -16,16 +16,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger("orange-bot")
 
+import os
+
 # -------------------------
-# CONFIG: HARDCODED VALUES
+# CONFIG: FROM ENVIRONMENT
 # -------------------------
-BOT_TOKEN = "8385794262:AAEB1t8wy-6NDiqAcQPirYmw-klE83NrIUQ"
-CHAT_ID = -1003053441379
-OWNER_ID = 7500869913
-ACCOUNTS: List[Dict[str, str]] = [
-    {"email": "jadenafrix1@gmail.com", "password": "cybixtech"},
-    {"email": "lilafrix4@gmail.com", "password": "mahachi2007"}
-]
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+try:
+    CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+except ValueError:
+    CHAT_ID = 0
+
+try:
+    OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+except ValueError:
+    OWNER_ID = 0
+
+ACCOUNTS: List[Dict[str, str]] = []
+email1 = os.getenv("ORANGE_ACCOUNT_1_EMAIL")
+pass1 = os.getenv("ORANGE_ACCOUNT_1_PASSWORD")
+if email1 and pass1:
+    ACCOUNTS.append({
+        "email": str(email1),
+        "password": str(pass1)
+    })
+email2 = os.getenv("ORANGE_ACCOUNT_2_EMAIL")
+pass2 = os.getenv("ORANGE_ACCOUNT_2_PASSWORD")
+if email2 and pass2:
+    ACCOUNTS.append({
+        "email": str(email2),
+        "password": str(pass2)
+    })
 POLL_INTERVAL = 10  # seconds between checks per account
 CDR_API_TEMPLATE = "https://www.orangecarrier.com/CDR/mycdrs?start=0&length=50"
 LOGIN_URL = "https://www.orangecarrier.com/login"
@@ -43,8 +64,9 @@ seen_ids = set()
 def extract_token_from_html(html: str) -> Optional[str]:
     soup = BeautifulSoup(html, "html.parser")
     inp = soup.find("input", {"name": "_token"})
-    if inp and inp.get("value"):
-        return inp["value"]
+    if inp and hasattr(inp, "get") and inp.get("value"):
+        val = inp["value"]
+        return str(val) if isinstance(val, str) else (val[0] if isinstance(val, list) and val else None)
     return None
 
 def safe_text(x: Any) -> str:
@@ -122,27 +144,31 @@ async def fetch_cdr_for_account(client: httpx.AsyncClient, email: str, password:
         page = await client.get(CDR_PAGE)
         soup = BeautifulSoup(page.text, "html.parser")
         table = soup.find("table")
-        if table:
+        if table and hasattr(table, "find"):
             tbody = table.find("tbody") or table
-            for tr in tbody.find_all("tr"):
-                cols = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
-                if not cols:
-                    continue
-                cli = cols[0] if len(cols) > 0 else ""
-                to_num = cols[1] if len(cols) > 1 else ""
-                time_str = cols[2] if len(cols) > 2 else ""
-                duration = cols[3] if len(cols) > 3 else ""
-                call_type = cols[4] if len(cols) > 4 else ""
-                uid = f"{email}_{cli}_{time_str}"
-                results.append({
-                    "id": uid,
-                    "cli": cli,
-                    "to": to_num,
-                    "time": time_str,
-                    "duration": duration,
-                    "type": call_type,
-                    "account": email,
-                })
+            if hasattr(tbody, "find_all"):
+                for tr in tbody.find_all("tr"):
+                    tds = tr.find_all("td")
+                    if not tds:
+                        continue
+                    cols = [td.get_text(" ", strip=True) for td in tds]
+                    if not cols:
+                        continue
+                    cli = cols[0] if len(cols) > 0 else ""
+                    to_num = cols[1] if len(cols) > 1 else ""
+                    time_str = cols[2] if len(cols) > 2 else ""
+                    duration = cols[3] if len(cols) > 3 else ""
+                    call_type = cols[4] if len(cols) > 4 else ""
+                    uid = f"{email}_{cli}_{time_str}"
+                    results.append({
+                        "id": uid,
+                        "cli": cli,
+                        "to": to_num,
+                        "time": time_str,
+                        "duration": duration,
+                        "type": call_type,
+                        "account": email,
+                    })
             logger.info("[%s] parsed %d rows from HTML table", email, len(results))
             return results
         else:
@@ -220,6 +246,8 @@ async def heartbeat_task(app: Application):
         await asyncio.sleep(3600)
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
     keyboard = [
         [
             InlineKeyboardButton("NUMBER CHANNEL", url="https://t.me/your_number_channel_placeholder"),
