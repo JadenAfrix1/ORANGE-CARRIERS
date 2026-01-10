@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import asyncio
 import logging
-from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 import httpx
@@ -55,12 +54,7 @@ def safe_text(x: Any) -> str:
         return ""
 
 async def fetch_cdr_for_account(client: httpx.AsyncClient, email: str, password: str) -> List[Dict[str, Any]]:
-    """
-    Attempt to login and fetch CDRs for a single account.
-    Returns list of records (dicts) with at least keys: id, cli, to, time, duration, type, account
-    """
     results: List[Dict[str, Any]] = []
-    # step 1: GET login page to collect CSRF token and cookies
     r = await client.get(LOGIN_URL)
     token = extract_token_from_html(r.text)
     if not token:
@@ -69,7 +63,6 @@ async def fetch_cdr_for_account(client: httpx.AsyncClient, email: str, password:
     if token:
         payload["_token"] = token
 
-    # step 2: POST login
     r2 = await client.post(LOGIN_URL, data=payload, follow_redirects=True)
     page_lower = r2.text.lower() if r2 is not None else ""
     if not ("logout" in page_lower or "dashboard" in page_lower) and r2.url.path.endswith("/login"):
@@ -77,8 +70,6 @@ async def fetch_cdr_for_account(client: httpx.AsyncClient, email: str, password:
         return results
 
     logger.info("[%s] login success (session cookie set).", email)
-
-    # step 3: Try JSON API endpoint first (fast & reliable if available)
     try:
         api_resp = await client.get(CDR_API_TEMPLATE)
         if api_resp.status_code == 200:
@@ -127,7 +118,6 @@ async def fetch_cdr_for_account(client: httpx.AsyncClient, email: str, password:
     except Exception as e:
         logger.debug("[%s] CDR API request exception: %s", email, e)
 
-    # step 4: fallback — fetch CDR page HTML and parse table (if any)
     try:
         page = await client.get(CDR_PAGE)
         soup = BeautifulSoup(page.text, "html.parser")
@@ -230,7 +220,6 @@ async def heartbeat_task(app: Application):
         await asyncio.sleep(3600)
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Inline keyboard definition
     keyboard = [
         [
             InlineKeyboardButton("NUMBER CHANNEL", url="https://t.me/your_number_channel_placeholder"),
